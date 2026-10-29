@@ -1,0 +1,965 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Space Dodge</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Space Dodge">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#05070f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>[hidden] { display: none !important; } * { -webkit-tap-highlight-color: transparent; }</style>
+<style>
+/* Layout: the 16:9 game screen fills the phone; touch buttons float in the bottom corners. */
+:root {
+  --space: #05070f;
+  --panel: rgba(8, 12, 26, 0.82);
+  --ink: #eef2ff;
+  --muted: #a9b3d6;
+  --amber: #ffdc46;
+  --cyan: #6eebff;
+  --mono: Menlo, "SF Mono", Consolas, "DejaVu Sans Mono", monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; background: var(--space); color: var(--ink); overflow: hidden; overscroll-behavior: none;
+  font-family: var(--mono); -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#stage { position: fixed; inset: 0; touch-action: none; }
+canvas { position: absolute; display: block; background: #000; touch-action: none; }
+.pad { position: fixed; bottom: 14px; display: flex; gap: 14px; z-index: 5; }
+#pad-left { left: 14px; }
+#pad-right { right: 14px; }
+.btn { width: 74px; height: 74px; border-radius: 50%; border: 2px solid rgba(238, 242, 255, 0.55);
+  background: rgba(10, 14, 30, 0.38); color: var(--ink); font: 700 26px var(--mono);
+  display: flex; align-items: center; justify-content: center; touch-action: none; padding: 0; -webkit-tap-highlight-color: transparent; }
+.landscape .btn { width: 62px; height: 62px; font-size: 22px; }
+.landscape .pad { gap: 10px; }
+.landscape #fire { width: 88px; height: 88px; font-size: 15px; }
+.portrait .btn { width: 78px; height: 78px; }
+.portrait #fire { width: 96px; height: 96px; }
+.btn.on { background: rgba(110, 235, 255, 0.35); border-color: var(--cyan); }
+#fire { width: 92px; height: 92px; font-size: 17px; letter-spacing: 0.08em; border-color: rgba(255, 220, 70, 0.75); }
+#fire.on { background: rgba(255, 220, 70, 0.38); }
+#fire.locked { opacity: 0.35; }
+@media (pointer: fine) { .pad { display: none; } }
+#menu { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+  background: rgba(3, 5, 12, 0.6);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px; }
+.card { background: var(--panel); border: 1px solid rgba(110, 235, 255, 0.35); border-radius: 8px;
+  padding: 18px 22px; width: min(560px, 100%); box-sizing: border-box; max-height: 100%; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px; }
+.card h1 { margin: 0; font-size: clamp(26px, 6vw, 38px); color: var(--amber); letter-spacing: 0.04em; line-height: 1.05; text-wrap: balance; }
+.card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.card ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.card b { color: var(--ink); }
+#go { align-self: flex-start; font: 700 18px var(--mono); color: #10131d; background: var(--amber); border: 0;
+  border-radius: 6px; padding: 11px 20px; cursor: pointer; letter-spacing: 0.05em; }
+#go:focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
+#turn { display: none; color: var(--cyan) !important; }
+@media (max-height: 460px) { .card { padding: 12px 18px; gap: 6px; } .card h1 { font-size: 24px; } .card p, .card ul { font-size: 12px; line-height: 1.4; } #go { padding: 8px 18px; } }
+</style>
+</head>
+<body>
+
+<div id="stage"><canvas id="game" width="960" height="540"></canvas></div>
+<div class="pad" id="pad-left">
+  <button class="btn" id="left" aria-label="Move left">&#9664;</button>
+  <button class="btn" id="right" aria-label="Move right">&#9654;</button>
+</div>
+<div class="pad" id="pad-right"><button class="btn locked" id="fire" aria-label="Fire">FIRE</button></div>
+<div id="menu">
+  <div class="card">
+    <h1>SPACE DODGE</h1>
+        <p>Fly your Orion-style spacecraft through the openings in the falling walls. From any opening you can always reach every opening in the next wall.</p>
+    <ul>
+      <li><b>&#9664; &#9654;</b> fly left and right <span class="kb">(keyboard: Z and /)</span></li>
+      <li><b>FIRE</b> shoot, from Lunar orbit (score 30) onwards <span class="kb">(keyboard: comma)</span></li>
+      <li>Catch or shoot glowing capsules for 5 s boosters: <b>slow motion</b>, <b>clear skies</b>, <b>shield</b>, <b>rapid fire</b></li>
+      <li>Every 30 points: a new part of space, from Low Earth orbit to Deep space</li>
+    </ul>
+    <p id="best-line"></p>
+    <button id="go" type="button">PLAY</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+// =================================================================== settings
+let W = 960, H = 540;              // game size in game pixels: adapts to the screen shape
+const FPS = 60;
+const CRAFT_W = 60, CRAFT_H = 60, CRAFT_SPEED = 6;
+const FALL_SPEED = 3.5, WALL_HEIGHT = 24, WALL_SPACING = 300;
+const HARDEST_AT = 500, ZONE_LENGTH = 30;
+const SAFE = (CRAFT_W - 8) / 2 + 2;
+const FONT = 'Menlo, "SF Mono", Consolas, "DejaVu Sans Mono", monospace';
+const WHITE = [255, 255, 255], YELLOW = [255, 220, 70], LASER = [255, 70, 120];
+
+const Z = (name, top, bottom, ambient, star, wall, edge, rock, kinds, between, intro, extra = {}) =>
+  Object.assign({ name, top, bottom, ambient, star, wall, edge, rock, kinds, between, intro }, extra);
+const ZONES = [
+  Z("Low Earth orbit", [22, 60, 130], [4, 12, 40], "earthglow", [210, 225, 255], [125, 155, 215], [205, 225, 255], "junk", ["satellite"], [], "Old satellites and space junk ahead"),
+  Z("Lunar orbit", [78, 78, 88], [12, 12, 16], "dust", [240, 240, 240], [175, 175, 185], [235, 235, 240], "moon", ["satellite", "fighter"], [], "Alien fighter spacecraft! Dodge their lasers"),
+  Z("Mars orbit", [160, 58, 30], [42, 10, 6], "storm", [255, 215, 190], [230, 165, 120], [255, 215, 175], "mars", ["ufo", "fighter"], ["planet"], "UFOs and small moons around Mars"),
+  Z("Asteroid belt", [92, 76, 52], [20, 16, 12], "rocks", [240, 225, 200], [195, 165, 120], [245, 220, 175], "belt", ["comet", "ufo"], ["planet"], "Rocks everywhere, and shooting stars", { rockBoost: 2 }),
+  Z("Jupiter's storms", [180, 110, 50], [62, 30, 12], "swirls", [255, 235, 200], [245, 205, 150], [255, 240, 205], "amber", ["green", "comet"], ["planet"], "Little green aliens live in Jupiter's storms!"),
+  Z("Saturn's rings", [160, 138, 62], [36, 30, 10], "sparkle", [255, 248, 215], [240, 225, 150], [255, 250, 205], "ice", ["green", "shower", "satellite"], ["planet"], "Ice chunks and meteor showers in Saturn's rings"),
+  Z("Uranus", [40, 155, 165], [5, 35, 45], "aurora", [215, 255, 255], [155, 240, 245], [225, 255, 255], "ice", ["jelly", "shower", "ufo"], ["mines"], "Space jellyfish! Don't touch the tentacles"),
+  Z("Neptune", [30, 72, 210], [4, 10, 52], "wind", [200, 220, 255], [135, 175, 255], [215, 230, 255], "ice", ["jelly", "mothership", "comet"], ["blackhole"], "Alien mothership and black holes near Neptune"),
+  Z("Purple nebula", [125, 40, 155], [22, 6, 42], "clouds", [250, 210, 255], [220, 155, 250], [252, 220, 255], "crystal", ["purple", "ufo", "shower"], ["mines", "blackhole"], "One-eyed aliens hide in the nebula"),
+  Z("Alien homeworld", [42, 145, 62], [5, 30, 12], "spores", [200, 255, 210], [155, 245, 165], [225, 255, 230], "crystal", ["purple", "green", "mothership", "fighter"], ["mines", "blackhole"], "Welcome to the alien homeworld. Good luck!"),
+  Z("Deep space", [12, 12, 30], [0, 0, 4], "galaxies", [255, 255, 255], [155, 155, 205], [225, 225, 255], "junk",
+    ["satellite", "fighter", "ufo", "comet", "green", "shower", "jelly", "mothership", "purple"], ["planet", "mines", "blackhole"], "Everything at once - you made it this far!"),
+];
+const ROCK_STYLES = {
+  junk: [[150, 150, 160], [95, 95, 105]], moon: [[165, 165, 160], [115, 115, 110]], mars: [[170, 85, 55], [120, 55, 35]],
+  belt: [[125, 100, 80], [85, 65, 50]], amber: [[200, 140, 70], [150, 95, 40]], ice: [[195, 225, 240], [140, 185, 215]],
+  crystal: [[190, 120, 230], [130, 70, 180]],
+};
+const PLANET_COLOURS = [[[200, 120, 70], [160, 85, 50]], [[90, 150, 210], [60, 110, 170]], [[170, 110, 200], [130, 75, 160]],
+  [[210, 180, 110], [170, 140, 80]], [[150, 150, 145], [115, 115, 110]]];
+const UFO_LIGHTS = [[255, 80, 80], [255, 220, 60], [80, 200, 255]];
+const BOOSTERS = { slow: ["SLOW MOTION", [110, 170, 255]], clear: ["CLEAR SKIES", [255, 150, 60]],
+  shield: ["SHIELD", [120, 255, 150]], rapid: ["RAPID FIRE", [110, 235, 255]] };
+const BOOST_TIME = 5 * FPS;
+
+// =================================================================== helpers
+const difficulty = s => { const t = Math.min(s, HARDEST_AT) / HARDEST_AT; return 1 - (1 - t) ** 2; };
+const lerp = (a, b, t) => a + (b - a) * t;
+const mix = (c1, c2, t) => c1.map((a, i) => Math.round(lerp(a, c2[i], t)));
+const rgb = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const rand = (a, b) => a + Math.random() * (b - a);
+const randint = (a, b) => Math.floor(a + Math.random() * (b - a + 1));
+const choice = arr => arr[Math.floor(Math.random() * arr.length)];
+const TAU = Math.PI * 2;
+const rect = (x, y, w, h) => ({ x, y, w, h });
+const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+function circleHitsRect(cx, cy, r, q) {
+  const nx = Math.max(q.x, Math.min(cx, q.x + q.w)), ny = Math.max(q.y, Math.min(cy, q.y + q.h));
+  return (cx - nx) ** 2 + (cy - ny) ** 2 < r * r;
+}
+// drawing shortcuts on the shared context
+let ctx;
+function poly(c, pts, stroke = 0) {
+  ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath();
+  if (stroke) { ctx.lineWidth = stroke; ctx.strokeStyle = typeof c === "string" ? c : rgb(c); ctx.stroke(); }
+  else { ctx.fillStyle = typeof c === "string" ? c : rgb(c); ctx.fill(); }
+}
+function circle(c, x, y, r, stroke = 0) {
+  if (r <= 0) return;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+  if (stroke) { ctx.lineWidth = stroke; ctx.strokeStyle = typeof c === "string" ? c : rgb(c); ctx.stroke(); }
+  else { ctx.fillStyle = typeof c === "string" ? c : rgb(c); ctx.fill(); }
+}
+function ellipse(c, x, y, w, h, stroke = 0) {
+  ctx.beginPath(); ctx.ellipse(x + w / 2, y + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, 0, TAU);
+  if (stroke) { ctx.lineWidth = stroke; ctx.strokeStyle = typeof c === "string" ? c : rgb(c); ctx.stroke(); }
+  else { ctx.fillStyle = typeof c === "string" ? c : rgb(c); ctx.fill(); }
+}
+function box(c, x, y, w, h, radius = 0, stroke = 0) {
+  ctx.beginPath();
+  if (radius && ctx.roundRect) ctx.roundRect(x, y, w, h, radius); else ctx.rect(x, y, w, h);
+  if (stroke) { ctx.lineWidth = stroke; ctx.strokeStyle = typeof c === "string" ? c : rgb(c); ctx.stroke(); }
+  else { ctx.fillStyle = typeof c === "string" ? c : rgb(c); ctx.fill(); }
+}
+function line(c, x1, y1, x2, y2, w = 1) {
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineWidth = w; ctx.strokeStyle = typeof c === "string" ? c : rgb(c); ctx.stroke();
+}
+function arc(c, x, y, w, h, a0, a1, width = 1) {
+  // pygame-style arc: angles counter-clockwise from the right, in a w x h box at (x, y)
+  ctx.beginPath(); ctx.ellipse(x + w / 2, y + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, -a1, -a0);
+  ctx.lineWidth = width; ctx.strokeStyle = typeof c === "string" ? c : rgb(c); ctx.stroke();
+}
+const blobCache = new Map();
+function softBlob(radius, colour, alpha) {
+  radius = Math.max(2, Math.round(radius));
+  const key = radius + "|" + colour + "|" + alpha;
+  if (!blobCache.has(key)) {
+    const cv = document.createElement("canvas"); cv.width = cv.height = radius * 2;
+    const c = cv.getContext("2d"), g = c.createRadialGradient(radius, radius, 0, radius, radius, radius);
+    g.addColorStop(0, rgb(colour, alpha / 255 * 0.9)); g.addColorStop(1, rgb(colour, 0));
+    c.fillStyle = g; c.fillRect(0, 0, radius * 2, radius * 2);
+    blobCache.set(key, cv);
+  }
+  return blobCache.get(key);
+}
+function text(s, size, x, y, colour, align = "left") {
+  ctx.font = `700 ${size}px ${FONT}`; ctx.textAlign = align; ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillText(s, x + 2, y + 2);
+  ctx.fillStyle = rgb(colour); ctx.fillText(s, x, y);
+}
+
+// =================================================================== spacecraft
+class Spacecraft {
+  constructor() { this.w = CRAFT_W; this.h = CRAFT_H; this.fx = W / 2 - CRAFT_W / 2; this.y = H - 40 - CRAFT_H; }
+  get x() { return Math.round(this.fx); }
+  get cx() { return this.x + this.w / 2; }
+  get cy() { return this.y + this.h / 2; }
+  push(dx) { this.fx = Math.min(Math.max(this.fx + dx, 0), W - CRAFT_W); }
+  hitbox() { return rect(this.x + 4, this.y + 5, this.w - 8, this.h - 10); }
+  draw(tick) {
+    const cx = this.cx, top = this.y;
+    const len = 10 + Math.floor(tick / 3) % 3 * 4;
+    poly([255, 140, 30], [[cx - 6, top + 54], [cx + 6, top + 54], [cx, top + 56 + len]]);
+    poly([255, 230, 90], [[cx - 3, top + 54], [cx + 3, top + 54], [cx, top + 56 + len / 2]]);
+    poly([95, 95, 105], [[cx - 4, top + 47], [cx + 4, top + 47], [cx + 7, top + 55], [cx - 7, top + 55]]);
+    for (const side of [-1, 1]) {                                  // long solar wings
+      const root = cx + side * 11;
+      line([190, 190, 200], root, top + 36, root + side * 4, top + 35, 2);
+      const wing = [[root + side * 4, top + 31], [cx + side * 30, top + 27], [cx + side * 30, top + 34], [root + side * 4, top + 38]];
+      poly([30, 55, 130], wing);
+      for (let k = 1; k < 4; k++) { const x = root + side * (4 + k * 4); line([90, 130, 220], x, top + 31 - k, x, top + 37 - k, 1); }
+      poly([120, 150, 220], wing, 1);
+    }
+    box([215, 218, 225], cx - 11, top + 28, 22, 20, 2);              // service module
+    box([205, 165, 70], cx - 11, top + 37, 22, 4);
+    box([150, 155, 165], cx - 11, top + 28, 22, 20, 2, 1);
+    box([185, 188, 195], cx - 12, top + 25, 24, 4);                  // adapter + heat shield
+    box([110, 70, 45], cx - 14, top + 22, 28, 3);
+    const capsule = [[cx - 5, top + 3], [cx + 5, top + 3], [cx + 14, top + 22], [cx - 14, top + 22]];
+    poly([235, 236, 240], capsule); poly([165, 168, 178], capsule, 1);
+    line([200, 202, 210], cx - 9, top + 12, cx + 9, top + 12, 1);
+    poly([40, 55, 85], [[cx - 4, top + 8], [cx + 2, top + 8], [cx + 3, top + 13], [cx - 5, top + 13]]);
+    box([175, 178, 188], cx - 3, top, 6, 4);
+  }
+}
+
+// =================================================================== walls
+const centreRange = g => [g[0] + SAFE, g[1] - SAFE];
+function reachable(prev, gap, reach) {
+  const [p0, p1] = centreRange(prev), [g0, g1] = centreRange(gap);
+  const dist = x => (g0 <= x && x <= g1) ? 0 : Math.min(Math.abs(x - g0), Math.abs(x - g1));
+  return Math.max(dist(p0), dist(p1)) <= reach;
+}
+function makeGaps(width, prev, reach) {
+  // every opening can be reached from EVERY opening of the previous wall
+  const margin = 20, minWall = 70;
+  const okFromAll = g => !prev || prev.every(p => reachable(p, g, reach));
+  const count = choice([1, 2, 2, 3, 3]), gaps = [];
+  for (let n = 0; n < 400 && gaps.length < count; n++) {
+    const x0 = randint(margin, W - margin - width), g = [x0, x0 + width];
+    if (okFromAll(g) && gaps.every(o => g[1] + minWall <= o[0] || o[1] + minWall <= g[0])) gaps.push(g);
+  }
+  if (gaps.length) return gaps.sort((a, b) => a[0] - b[0]);
+  const lo = Math.max(...prev.map(p => centreRange(p)[1])), hi = Math.min(...prev.map(p => centreRange(p)[0]));
+  const x0 = Math.round(Math.min(Math.max((lo + hi) / 2 - width / 2, margin), W - margin - width));
+  return [[x0, x0 + width]];
+}
+class Barrier {
+  constructor(y, width, prev = null, reach = null) {
+    this.gaps = makeGaps(width, prev, reach); this.y = y; this.passed = false; this.parts = [];
+    let x = 0;
+    for (const [g0, g1] of this.gaps) { if (g0 > x) this.parts.push(rect(x, y, g0 - x, WALL_HEIGHT)); x = g1; }
+    if (x < W) this.parts.push(rect(x, y, W - x, WALL_HEIGHT));
+  }
+  update() { this.y += FALL_SPEED; for (const p of this.parts) p.y = Math.floor(this.y); }
+  collides(r) { return this.parts.some(p => hit(p, r)); }
+  draw(colour, edge) { for (const p of this.parts) { box(colour, p.x, p.y, p.w, p.h); box(edge, p.x + 1, p.y + 1, p.w - 2, p.h - 2, 0, 2); } }
+}
+
+// =================================================================== obstacles
+class Rock {
+  constructor(style, x = null, radius = null, vy = null) {
+    this.style = style; this.radius = radius || randint(12, 24);
+    this.x = x !== null ? x : randint(this.radius, W - this.radius); this.y = -this.radius;
+    this.vy = vy || FALL_SPEED * rand(1.1, 1.5); this.vx = rand(-1.2, 1.2); this.spin = rand(0, TAU);
+    this.points = 0; this.hp = 1;
+  }
+  update() { this.x += this.vx; this.y += this.vy; this.spin += 0.05; if (this.x < this.radius || this.x > W - this.radius) this.vx *= -1; }
+  gone() { return this.y - this.radius > H; }
+  collides(r) { return circleHitsRect(this.x, this.y, this.radius, r); }
+  draw() {
+    const { x, y, radius: r } = this, [colour, dark] = ROCK_STYLES[this.style];
+    if (this.style === "junk") {
+      const pts = [0, 1.9, 3.3, 4.6].map(a => [x + Math.cos(this.spin + a) * r, y + Math.sin(this.spin + a) * r * 0.6]);
+      poly(colour, pts); poly(dark, pts, 2); line([205, 165, 70], pts[0][0], pts[0][1], pts[2][0], pts[2][1], 2);
+    } else if (this.style === "crystal") {
+      const pts = [...Array(6)].map((_, k) => { const f = k % 2 ? 1 : 0.6, a = this.spin + k * TAU / 6; return [x + Math.cos(a) * r * f, y + Math.sin(a) * r * f]; });
+      poly(colour, pts); poly([240, 200, 255], pts, 1);
+    } else {
+      circle(colour, x, y, r); circle(dark, x - r / 3, y - r / 4, r / 4); circle(dark, x + r / 3, y + r / 3, r / 5);
+      if (this.style === "ice") circle(WHITE, x - r / 3, y - r / 3, Math.max(2, r / 5));
+    }
+  }
+}
+class Meteor extends Rock {
+  constructor(style, x, speed) { super(style, x, randint(7, 11), speed); this.vx = rand(-0.6, 0.6); }
+  draw() {
+    const { x, y } = this;
+    line([255, 150, 60], x, y, x - this.vx * 6, y - 26, 4);
+    circle([255, 170, 80], x, y, this.radius + 2); circle(ROCK_STYLES[this.style][0], x, y, this.radius);
+  }
+}
+class UFO {
+  constructor(sideways) { this.x = randint(60, W - 60); this.y = -30; this.age = 0; this.vx = choice([-1, 1]) * sideways; this.points = 2; this.hp = 2; }
+  update() {
+    this.age++;
+    if (this.age < 60) { if (this.y < 35) this.y += 2; return; }
+    this.x += this.vx;
+    if (this.x < 27 || this.x > W - 27) { this.vx = -this.vx; this.x = Math.min(Math.max(this.x, 27), W - 27); }
+    this.y += 2.2;
+  }
+  gone() { return this.y > H + 40; }
+  collides(r) { return hit(rect(this.x - 21, this.y - 8, 42, 18), r); }
+  draw(tick) {
+    const { x, y } = this;
+    if (Math.floor(tick / 6) % 2 === 0) poly(rgb([120, 255, 170], 0.2), [[x - 6, y + 8], [x + 6, y + 8], [x + 20, y + 58], [x - 20, y + 58]]);
+    ellipse([120, 255, 170], x - 13, y - 16, 26, 22); ellipse(WHITE, x - 7, y - 13, 7, 6);
+    ellipse([95, 105, 120], x - 27, y - 4, 54, 16); ellipse([150, 160, 175], x - 27, y - 7, 54, 14);
+    [-18, -6, 6, 18].forEach((lx, i) => circle(UFO_LIGHTS[(i + Math.floor(tick / 8)) % 3], x + lx, y + 1, 3));
+  }
+}
+class Planet {
+  constructor(x, radius) {
+    this.x = x; this.radius = radius; this.y = -radius; [this.base, this.band] = choice(PLANET_COLOURS);
+    this.ring = Math.random() < 0.4; this.points = 0; this.hp = 5;
+  }
+  update() { this.y += FALL_SPEED; }
+  gone() { return this.y - this.radius > H; }
+  collides(r) { return circleHitsRect(this.x, this.y, this.radius - 2, r); }
+  draw() {
+    const { x, y, radius: r } = this;
+    if (this.ring) ellipse([200, 190, 160], x - r * 1.6, y - r * 0.32, r * 3.2, r * 0.64, 3);
+    ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.clip();
+    box(this.base, x - r, y - r, r * 2, r * 2);
+    for (let k = -r; k < r; k += 14) box(this.band, x - r, y + k + 4, r * 2, 5);
+    circle("rgba(0,0,0,0.39)", x + r / 3, y + r / 3, r);
+    ctx.restore();
+    if (this.ring) arc([230, 220, 190], x - r * 1.6, y - r * 0.32, r * 3.2, r * 0.64, Math.PI, TAU, 3);
+  }
+}
+class BlackHole {
+  constructor(x) { this.x = x; this.y = -40; this.points = 0; this.hp = null; }
+  update() { this.y += FALL_SPEED; }
+  pullOn(c) {
+    const dy = Math.abs(this.y - c.cy), dx = this.x - c.cx;
+    if (dy > 220 || Math.abs(dx) > 350) return 0;
+    return Math.sign(dx) * 1.4 * (1 - Math.abs(dx) / 350) * (1 - dy / 220);
+  }
+  gone() { return this.y - 40 > H; }
+  collides(r) { return circleHitsRect(this.x, this.y, 14, r); }
+  draw(tick) {
+    const { x, y } = this;
+    for (const [rr, a] of [[58, 25], [44, 45], [32, 70]]) circle(rgb([150, 90, 255], a / 255), x, y, rr);
+    const spin = tick * 0.08;
+    for (let k = 0; k < 3; k++) { const a0 = spin + k * 2.1; arc([255, 170, 80], x - 30, y - 12, 60, 24, a0, a0 + 1.6, 3); }
+    circle([0, 0, 0], x, y, 16); circle([190, 140, 255], x, y, 17, 1);
+  }
+}
+class Mine {
+  constructor(x) { this.x = x; this.y = -20; this.phase = randint(0, 30); this.points = 0; this.hp = 1; }
+  update() { this.y += FALL_SPEED; }
+  gone() { return this.y - 20 > H; }
+  collides(r) { return circleHitsRect(this.x, this.y, 11, r); }
+  draw(tick) {
+    const { x, y } = this;
+    for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; line([150, 150, 160], x, y, x + Math.cos(a) * 17, y + Math.sin(a) * 17, 3); }
+    circle([85, 85, 95], x, y, 11);
+    circle(Math.floor((tick + this.phase) / 15) % 2 === 0 ? [255, 40, 40] : [90, 20, 20], x, y, 4);
+  }
+}
+class Comet {
+  constructor(x, speed) { this.x = x; this.y = -10; this.vx = choice([-1, 1]) * rand(1, 2.5); this.vy = speed; this.trail = []; this.points = 0; this.hp = 1; }
+  update() {
+    this.trail.push([this.x, this.y]); if (this.trail.length > 14) this.trail.shift();
+    this.x += this.vx; this.y += this.vy; if (this.x < 8 || this.x > W - 8) this.vx *= -1;
+  }
+  gone() { return this.y > H + 20; }
+  collides(r) { return circleHitsRect(this.x, this.y, 7, r); }
+  draw() {
+    this.trail.forEach(([tx, ty], i) => { const f = (i + 1) / this.trail.length; circle([255 * f, 200 * f, 90 * f].map(Math.round), tx, ty, Math.max(1, 6 * f)); });
+    circle(YELLOW, this.x, this.y, 8); circle(WHITE, this.x, this.y, 4);
+  }
+}
+class Laser {
+  constructor(x, y, colour = LASER) { this.x = x; this.y = y; this.colour = colour; this.points = 0; this.hp = 1; }
+  update() { this.y += 7; }
+  gone() { return this.y > H + 20; }
+  collides(r) { return hit(rect(this.x - 3, this.y, 6, 18), r); }
+  draw() { box(this.colour, this.x - 3, this.y, 6, 18, 3); box(WHITE, this.x - 1, this.y + 2, 2, 14); }
+}
+class Fighter {
+  constructor(fireEvery) {
+    this.x = randint(100, W - 100); this.y = -40; this.age = 0; this.fireEvery = fireEvery; this.fireTimer = fireEvery;
+    this.leaving = false; this.points = 3; this.hp = 3; this.sideways = 2;
+  }
+  update(game) {
+    this.age++;
+    if (this.age > 9 * FPS) this.leaving = true;
+    if (this.leaving) { this.y -= 3; return; }
+    if (this.y < 60) { this.y += 2; return; }
+    this.x += Math.max(-this.sideways, Math.min(this.sideways, (game.craft.cx - this.x) * 0.03));
+    if (--this.fireTimer <= 0) { this.fire(game); this.fireTimer = this.fireEvery; }
+  }
+  fire(game) { game.hazards.push(new Laser(this.x, this.y + 18)); }
+  gone() { return this.leaving && this.y < -70; }
+  collides() { return false; }
+  shotBy(r) { return hit(rect(this.x - 40, this.y - 20, 80, 40), r); }
+  charging() { return !this.leaving && this.y >= 60 && this.fireTimer < 20; }
+  draw(tick) {
+    const { x, y } = this;
+    poly([75, 35, 100], [[x - 42, y - 10], [x + 42, y - 10], [x + 26, y + 8], [x - 26, y + 8]]);
+    poly([120, 60, 150], [[x - 18, y - 20], [x + 18, y - 20], [x + 10, y + 20], [x - 10, y + 20]]);
+    circle([255, 120, 200], x, y - 4, 7); circle(WHITE, x - 2, y - 6, 2);
+    if (this.charging() && Math.floor(tick / 3) % 2 === 0) circle(LASER, x, y + 20, 6);
+  }
+}
+class Mothership extends Fighter {
+  constructor(f) { super(f); this.points = 4; this.hp = 6; this.sideways = 1.4; }
+  fire(game) { for (const dx of [-34, 34]) game.hazards.push(new Laser(this.x + dx, this.y + 14, [120, 255, 140])); }
+  shotBy(r) { return hit(rect(this.x - 66, this.y - 30, 132, 50), r); }
+  draw(tick) {
+    const { x, y } = this;
+    ellipse([55, 75, 70], x - 70, y - 14, 140, 32); ellipse([95, 125, 115], x - 62, y - 18, 124, 26); ellipse([150, 255, 200], x - 22, y - 30, 44, 24);
+    for (let k = -3; k < 4; k++) circle((k + Math.floor(tick / 8)) % 3 === 0 ? [255, 240, 120] : [120, 110, 60], x + k * 16, y + 4, 3);
+    for (const dx of [-34, 34]) { box([40, 50, 50], x + dx - 4, y + 6, 8, 10); if (this.charging() && Math.floor(tick / 3) % 2 === 0) circle([120, 255, 140], x + dx, y + 16, 5); }
+  }
+}
+class Alien {
+  constructor(x, style, phase) { this.baseX = x; this.x = x; this.y = -30; this.style = style; this.phase = phase; this.age = 0; this.points = 1; this.hp = 1; }
+  update() { this.age++; this.y += this.style === "jelly" ? 2.4 : 2.6; this.x = this.baseX + Math.sin(this.age * 0.04 + this.phase) * 45; }
+  gone() { return this.y > H + 40; }
+  collides(r) { return this.style === "jelly" ? hit(rect(this.x - 16, this.y - 14, 32, 40), r) : circleHitsRect(this.x, this.y, 16, r); }
+  draw(tick) {
+    const { x, y } = this;
+    if (this.style === "green") {
+      const dark = [60, 160, 50], body = [110, 230, 90], wig = Math.floor(tick / 10) % 2 ? 3 : -3;
+      for (const s of [-1, 1]) {
+        line(dark, x + s * 6, y - 14, x + s * 11 + wig, y - 26, 2); circle(YELLOW, x + s * 11 + wig, y - 26, 3);
+        line(dark, x + s * 8, y + 12, x + s * 13, y + 21, 3);
+      }
+      ellipse(body, x - 17, y - 16, 34, 32); ellipse(dark, x - 17, y - 16, 34, 32, 2);
+      for (const ex of [-8, 0, 8]) { circle(WHITE, x + ex, y - 4, 4); circle([20, 20, 20], x + ex, y - 3, 2); }
+      arc([20, 60, 20], x - 6, y + 2, 12, 8, Math.PI, TAU, 2);
+    } else if (this.style === "jelly") {
+      for (let k = 0; k < 5; k++) {
+        ctx.beginPath();
+        for (let j = 0; j < 6; j++) { const px = x - 22 + 6 + k * 8 + Math.sin(tick * 0.15 + k + j * 0.8) * 3, py = y - 16 + 20 + j * 7; j ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+        ctx.lineWidth = 2; ctx.strokeStyle = rgb([120, 230, 255], 0.78); ctx.stroke();
+      }
+      ellipse(rgb([90, 210, 255], 0.67), x - 20, y - 14, 40, 30); ellipse(rgb([220, 250, 255], 0.78), x - 12, y - 8, 12, 8);
+    } else {
+      poly([90, 30, 120], [[x - 14, y - 10], [x - 20, y - 24], [x - 6, y - 14]]); poly([90, 30, 120], [[x + 14, y - 10], [x + 20, y - 24], [x + 6, y - 14]]);
+      circle([170, 80, 220], x, y, 17); circle([110, 40, 150], x, y, 17, 2);
+      circle(WHITE, x, y - 2, 8); circle([200, 30, 60], x + Math.round(Math.sin(tick * 0.05) * 3), y - 2, 4);
+      line([60, 10, 80], x - 6, y + 10, x + 6, y + 10, 2);
+    }
+  }
+}
+class Satellite {
+  constructor(speed) { this.dir = choice([-1, 1]); this.x = this.dir > 0 ? -60 : W + 60; this.y = randint(30, 150); this.vx = this.dir * speed; this.points = 2; this.hp = 2; }
+  update() { this.x += this.vx; this.y += 1.7; }
+  gone() { return this.y > H + 40 || (this.dir > 0 && this.x > W + 80) || (this.dir < 0 && this.x < -80); }
+  collides(r) { return hit(rect(this.x - 44, this.y - 8, 88, 16), r); }
+  draw(tick) {
+    const { x, y } = this;
+    line([180, 180, 190], x - 44, y, x + 44, y, 2);
+    for (const s of [-1, 1]) {
+      const px = x + s * 30 - 14, py = y - 9;
+      box([40, 70, 150], px, py, 28, 18);
+      for (let k = 1; k < 4; k++) line([110, 150, 230], px + k * 7, py, px + k * 7, py + 18, 1);
+      box([150, 170, 220], px, py, 28, 18, 0, 1);
+    }
+    box([210, 180, 90], x - 9, y - 11, 18, 22, 3);
+    line([200, 200, 210], x, y - 11, x + 6, y - 20, 2);
+    if (Math.floor(tick / 20) % 2) circle([255, 60, 60], x + 6, y - 20, 2);
+  }
+}
+
+// =================================================================== shooting, boosters, explosions
+class Bullet {
+  constructor(x, y) { this.x = x; this.y = y; }
+  rect() { return rect(this.x - 2, this.y - 12, 4, 12); }
+  draw() { box([110, 235, 255], this.x - 2, this.y - 12, 4, 12, 2); box(WHITE, this.x - 1, this.y - 10, 2, 8); }
+}
+class Explosion {
+  constructor(x, y, size, colours = [[255, 235, 140], [255, 150, 50], [255, 80, 40], WHITE], life = 34) {
+    Object.assign(this, { x, y, size, life, age: 0 });
+    this.sparks = [...Array(Math.floor(8 + size * 0.9))].map(() => { const a = rand(0, TAU), sp = rand(0.8, 2.2 + size / 12); return [x, y, Math.cos(a) * sp, Math.sin(a) * sp, choice(colours)]; });
+  }
+  update() { this.age++; for (const p of this.sparks) { p[0] += p[2]; p[1] += p[3]; p[2] *= 0.94; p[3] *= 0.94; } }
+  done() { return this.age >= this.life; }
+  draw() {
+    const f = 1 - this.age / this.life;
+    if (this.age < 8) circle([255, 245, 210], this.x, this.y, this.size * (0.5 + this.age * 0.1));
+    if (this.age < this.life * 0.6) circle([255, 170, 80], this.x, this.y, this.size * (0.4 + this.age / 22), 2);
+    for (const [sx, sy, , , c] of this.sparks) circle(c, sx, sy, Math.max(1, 3.5 * f + 0.5));
+  }
+}
+const blastSize = h => h.radius ? h.radius + 6 :
+  h instanceof Mothership ? 70 : h instanceof Fighter ? 42 : h instanceof UFO ? 32 : h instanceof Satellite ? 40 :
+  h instanceof Alien ? 24 : h instanceof Mine ? 30 : h instanceof Comet ? 14 : h instanceof Laser ? 8 : 20;
+class Booster {
+  constructor(kind) { this.kind = kind; this.x = randint(60, W - 60); this.y = -20; this.age = 0; }
+  update() { this.age++; this.y += 2.4; this.x += Math.sin(this.age * 0.05) * 0.6; }
+  gone() { return this.y > H + 30; }
+  touches(r) { return circleHitsRect(this.x, this.y, 18, r); }
+  draw(tick) {
+    const { x, y } = this, colour = BOOSTERS[this.kind][1], ink = [20, 25, 40];
+    circle(rgb(colour, 0.27), x, y, 22 + 4 + 3 * Math.sin(tick * 0.15));
+    circle(colour, x, y, 16); circle(WHITE, x, y, 16, 2);
+    if (this.kind === "slow") { poly(ink, [[x - 7, y - 9], [x + 7, y - 9], [x, y]]); poly(ink, [[x - 7, y + 9], [x + 7, y + 9], [x, y]]); }
+    else if (this.kind === "clear") { for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; line(ink, x, y, x + Math.cos(a) * 10, y + Math.sin(a) * 10, 2); } circle(ink, x, y, 4); }
+    else if (this.kind === "shield") { poly(ink, [[x - 8, y - 9], [x + 8, y - 9], [x + 8, y], [x, y + 10], [x - 8, y]]); poly(colour, [[x - 4, y - 5], [x + 4, y - 5], [x + 4, y], [x, y + 5], [x - 4, y]]); }
+    else poly(ink, [[x + 2, y - 11], [x - 7, y + 2], [x - 1, y + 2], [x - 3, y + 11], [x + 7, y - 2], [x + 1, y - 2]]);
+  }
+}
+
+// =================================================================== background
+class Background {
+  constructor() { this.surfaces = ZONES.map(z => this.paint(z)); this.zone = 0; this.prev = null; this.fade = 120; this.fill(); }
+  paint(z) {
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const c = cv.getContext("2d"), g = c.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, rgb(z.top)); g.addColorStop(1, rgb(z.bottom)); c.fillStyle = g; c.fillRect(0, 0, W, H);
+    if (z.ambient === "earthglow") {
+      const glow = c.createLinearGradient(0, H - 40, 0, H); glow.addColorStop(0, rgb([90, 160, 255], 0)); glow.addColorStop(1, rgb([90, 160, 255], 0.8));
+      c.fillStyle = glow; c.fillRect(0, H - 40, W, 40);
+    } else if (z.ambient === "swirls") {
+      let k = 0;
+      for (let y = 30; y < H; y += 70, k++) { c.fillStyle = rgb(mix(mix(z.top, z.bottom, y / H), k % 2 ? [235, 190, 140] : [120, 60, 30], 0.25)); c.fillRect(0, y, W, 26); }
+    } else if (z.ambient === "sparkle") {
+      for (let k = 0; k < 6; k++) { c.beginPath(); c.ellipse(W / 2, -220 + k * 14 + 260, (W + 600) / 2, 260, 0, 0, TAU); c.lineWidth = 3; c.strokeStyle = rgb(mix(z.top, [255, 235, 170], 0.22 - k * 0.025)); c.stroke(); }
+    }
+    return cv;
+  }
+  setZone(z) { if (z !== this.zone) { this.prev = this.zone; this.zone = z; this.fade = 0; this.fill(); } }
+  fill() {
+    const style = ZONES[this.zone].ambient;
+    const n = { dust: 70, storm: 55, rocks: 14, swirls: 7, sparkle: 60, wind: 28, clouds: 8, spores: 45, galaxies: 6 }[style] || 0;
+    this.particles = [...Array(n)].map(() => this.newParticle(style, rand(0, H)));
+  }
+  newParticle(style, y = null) {
+    const p = { x: rand(0, W), y: y === null ? -20 : y, phase: rand(0, TAU), vx: 0, vy: 1, size: 2 };
+    if (style === "dust") Object.assign(p, { vx: rand(-0.3, 0.3), vy: rand(1.2, 2.4), size: choice([1, 1, 2]) });
+    else if (style === "storm") Object.assign(p, { vx: rand(4, 7), vy: rand(1, 2), size: randint(10, 22) });
+    else if (style === "rocks") Object.assign(p, { vy: rand(0.6, 1.4), size: randint(6, 18) });
+    else if (style === "swirls") Object.assign(p, { vx: choice([-1, 1]) * rand(0.2, 0.5), vy: 0.3, size: randint(70, 130), colour: choice([[240, 200, 150], [200, 110, 60], [255, 230, 190]]) });
+    else if (style === "sparkle") Object.assign(p, { vy: rand(0.6, 1.2), size: choice([1, 2, 2, 3]) });
+    else if (style === "wind") Object.assign(p, { vx: rand(6, 11), vy: 0.4, size: randint(40, 110) });
+    else if (style === "clouds") Object.assign(p, { vx: rand(-0.3, 0.3), vy: rand(0.3, 0.6), size: randint(110, 200), colour: choice([[255, 110, 210], [130, 150, 255], [200, 90, 255]]) });
+    else if (style === "spores") { Object.assign(p, { vx: rand(-0.3, 0.3), vy: -rand(0.5, 1.2), size: randint(2, 4) }); if (y === null) p.y = H + 10; }
+    else if (style === "galaxies") Object.assign(p, { vy: rand(0.3, 0.6), size: randint(16, 30), colour: choice([[200, 170, 255], [255, 200, 160], [160, 210, 255]]) });
+    return p;
+  }
+  update() {
+    if (this.fade < 120) this.fade++;
+    const style = ZONES[this.zone].ambient;
+    for (const p of this.particles) {
+      p.x += p.vx; p.y += p.vy; p.phase += 0.08;
+      const big = p.size + 40;
+      if (p.y > H + big || p.y < -big - 30 || p.x > W + big || p.x < -big) {
+        Object.assign(p, this.newParticle(style));
+        if (style === "storm" || style === "wind") { p.x = -p.size; p.y = rand(0, H); }
+      }
+    }
+  }
+  draw(tick) {
+    if (this.prev !== null && this.fade < 120) {
+      ctx.drawImage(this.surfaces[this.prev], 0, 0);
+      ctx.globalAlpha = this.fade / 120; ctx.drawImage(this.surfaces[this.zone], 0, 0); ctx.globalAlpha = 1;
+    } else ctx.drawImage(this.surfaces[this.zone], 0, 0);
+    const z = ZONES[this.zone], style = z.ambient;
+    if (style === "aurora") {
+      [[70, 230, 180], [90, 250, 220], [60, 190, 210]].forEach((colour, k) => {
+        const base = 70 + k * 45;
+        for (const [w, t] of [[6, 0.55], [2, 0.85]]) {
+          ctx.beginPath();
+          for (let x = 0; x <= W + 20; x += 20) { const y = base + Math.sin(x * 0.012 + tick * 0.03 + k * 1.7) * 28 + Math.sin(x * 0.03 + tick * 0.05) * 8; x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+          ctx.lineWidth = w; ctx.strokeStyle = rgb(mix(z.top, colour, t)); ctx.stroke();
+        }
+      });
+    }
+    for (const p of this.particles) {
+      const { x, y, size } = p;
+      if (style === "dust") circle([190, 190, 195], x, y, size);
+      else if (style === "storm") line([245, 150, 85], x, y, x + size, y + size / 3, 2);
+      else if (style === "rocks") { circle(mix(z.bottom, [110, 90, 70], 0.55), x, y, size); circle(mix(z.bottom, [70, 55, 40], 0.55), x - size / 3, y - size / 4, Math.max(1, size / 4)); }
+      else if (style === "swirls" || style === "clouds") ctx.drawImage(softBlob(size, p.colour, style === "swirls" ? 45 : 55), x - size, y - size);
+      else if (style === "sparkle") circle(mix(z.top, [255, 240, 180], 0.5 + 0.5 * Math.sin(p.phase)), x, y, size);
+      else if (style === "wind") line(mix(z.top, [190, 215, 255], 0.6), x, y, x + size, y, 2);
+      else if (style === "spores") { const r = size + Math.round(1.5 * Math.sin(p.phase)); ctx.drawImage(softBlob(r * 4, [140, 255, 160], 70), x - r * 4, y - r * 4); circle([200, 255, 210], x, y, Math.max(1, r)); }
+      else if (style === "galaxies") { ctx.drawImage(softBlob(size, p.colour, 60), x - size, y - size); ellipse(p.colour, x - size, y - size / 3, size * 2, size * 2 / 3, 1); circle(WHITE, x, y, 2); }
+    }
+  }
+}
+
+// =================================================================== game
+const input = { left: false, right: false, fire: false };
+let best = 0;
+try { best = parseInt(localStorage.getItem("spaceDodgeBest") || "0", 10) || 0; } catch (e) { best = 0; }
+
+class Game {
+  constructor() {
+    this.stars = [...Array(90)].map(() => [randint(0, W), randint(0, H), choice([1, 1, 2])]);
+    this.background = new Background();
+    this.reset();
+  }
+  reset() {
+    this.craft = new Spacecraft(); this.barriers = [new Barrier(-WALL_HEIGHT, 220)];
+    this.hazards = []; this.warnings = []; this.timers = {}; this.between = null;
+    this.score = 0; this.diff = 0; this.zone = -1; this.alive = true; this.tick = 0;
+    this.colours = { star: ZONES[0].star, wall: ZONES[0].wall, edge: ZONES[0].edge };
+    this.background.setZone(0); this.background.fade = 120;
+    this.banner = ""; this.bannerT = 0; this.bannerQueue = [];
+    this.bullets = []; this.effects = []; this.popups = []; this.reload = 0;
+    this.boosters = []; this.active = {}; this.boosterTimer = 8 * FPS; this.worldClock = 0; this.flash = ["", WHITE, 0];
+    this.enterZone(0);
+  }
+  enterZone(zone) {
+    this.zone = zone; this.background.setZone(zone);
+    const z = ZONES[zone];
+    this.timers = {}; z.kinds.forEach((k, i) => { this.timers[k] = Math.floor(FPS * (1.5 + 1.2 * i)); });
+    this.bannerQueue.push([z.name.toUpperCase() + "\n" + z.intro, 4 * FPS]);
+    if (zone === 1) this.bannerQueue.push(["WEAPONS ONLINE\n" + (touchUI ? "Hold FIRE to shoot down obstacles" : "Press , to shoot down obstacles"), 4 * FPS]);
+  }
+  armed() { return this.zone >= 1; }
+  count(cls) { return this.hazards.filter(h => h instanceof cls).length; }
+  roomForMore() { return this.hazards.filter(h => !(h instanceof Laser || h instanceof Fighter || h instanceof Mine)).length < 3 + Math.round(5 * this.diff); }
+  freeSpot(half, others = []) {
+    const gaps = this.barriers[this.barriers.length - 1].gaps;
+    for (let n = 0; n < 40; n++) {
+      const x = randint(half + 10, W - half - 10);
+      if (gaps.every(g => x + half + SAFE < g[0] || x - half - SAFE > g[1]) && others.every(o => Math.abs(x - o) > half * 2 + 40)) return x;
+    }
+    return null;
+  }
+  placeBetween() {
+    const kind = choice(ZONES[this.zone].between);
+    if (kind === "planet") { const r = randint(24, 38), x = this.freeSpot(r); if (x !== null) { this.hazards.push(new Planet(x, r)); this.between = "planet"; } }
+    else if (kind === "blackhole") { const x = this.freeSpot(30); if (x !== null) { this.hazards.push(new BlackHole(x)); this.between = "blackhole"; } }
+    else {
+      const placed = [], n = randint(2, 2 + Math.round(2 * this.diff));
+      for (let k = 0; k < n; k++) { const x = this.freeSpot(18, placed); if (x !== null) { placed.push(x); this.hazards.push(new Mine(x)); } }
+      if (placed.length) this.between = "mines";
+    }
+  }
+  spawn(kind) {
+    const d = this.diff;
+    if (kind === "satellite") { if (this.roomForMore()) this.hazards.push(new Satellite(lerp(1.6, 2.8, d))); return lerp(6, 3, d); }
+    if (kind === "ufo") { if (this.count(UFO) < 1 + Math.round(2 * d) && this.roomForMore()) this.hazards.push(new UFO(lerp(2.5, 4, d))); return lerp(8, 3, d); }
+    if (kind === "comet") { this.warnings.push([randint(40, W - 40), 50, "comet"]); return lerp(5, 1.6, d); }
+    if (kind === "fighter" || kind === "mothership") {
+      if (this.count(Fighter) === 0) this.hazards.push(kind === "mothership" ? new Mothership(Math.floor(lerp(85, 45, d))) : new Fighter(Math.floor(lerp(85, 45, d))));
+      return lerp(14, 7, d);
+    }
+    if (kind === "green" || kind === "jelly" || kind === "purple") {
+      if (this.roomForMore()) {
+        const n = randint(2, 2 + Math.round(2 * d)), phase = rand(0, TAU);
+        const slots = [...Array(n * 2).keys()].sort(() => Math.random() - 0.5).slice(0, n);
+        for (const s of slots) this.hazards.push(new Alien(80 + s * (W - 160) / (n * 2 - 1), kind, phase));
+      }
+      return lerp(8, 3.5, d);
+    }
+    if (kind === "shower") {
+      const xs = [], n = randint(4, 4 + Math.round(4 * d));
+      for (let k = 0; k < n; k++) for (let t = 0; t < 20; t++) { const x = randint(30, W - 30); if (xs.every(o => Math.abs(x - o) > 120)) { xs.push(x); break; } }
+      for (const x of xs) this.warnings.push([x, 55, "meteor"]);
+      return lerp(11, 5, d);
+    }
+    return 5;
+  }
+  update() {
+    this.tick++;
+    const z0 = ZONES[this.zone];
+    for (const k of ["star", "wall", "edge"]) this.colours[k] = mix(this.colours[k], z0[k], 0.03);
+    this.background.update();
+    for (const s of this.stars) { s[1] += FALL_SPEED * 0.3 * s[2]; if (s[1] > H) { s[0] = randint(0, W); s[1] = 0; } }
+    if (this.bannerT > 0) this.bannerT--; else if (this.bannerQueue.length) [this.banner, this.bannerT] = this.bannerQueue.shift();
+    for (const e of this.effects) e.update();
+    this.effects = this.effects.filter(e => !e.done());
+    for (const p of this.popups) { p[1] -= 0.6; p[3]--; }
+    this.popups = this.popups.filter(p => p[3] > 0);
+    if (!this.alive) return;
+
+    this.diff = difficulty(this.score);
+    this.craft.push(((input.right ? 1 : 0) - (input.left ? 1 : 0)) * CRAFT_SPEED);
+    for (const h of this.hazards) if (h instanceof BlackHole) this.craft.push(h.pullOn(this.craft));
+    const hitbox = this.craft.hitbox();
+    const zone = Math.min(Math.floor(this.score / ZONE_LENGTH), ZONES.length - 1);
+    if (zone !== this.zone) this.enterZone(zone);
+    const z = ZONES[this.zone];
+
+    this.updateBoosters(hitbox);
+    this.worldClock += this.active.slow ? 0.5 : 1;
+    while (this.worldClock >= 1 && this.alive) { this.worldClock -= 1; this.stepWorld(hitbox, z); }
+
+    if (this.reload > 0) this.reload--;
+    if (this.armed() && input.fire && this.reload === 0) {
+      const cx = this.craft.cx, top = this.craft.y;
+      if (this.active.rapid) { this.bullets.push(new Bullet(cx - 8, top + 6), new Bullet(cx + 8, top + 6)); this.reload = 4; }
+      else { this.bullets.push(new Bullet(cx, top)); this.reload = 12; }
+    }
+    this.moveBullets();
+  }
+  stepWorld(hitbox, z) {
+    for (const b of this.barriers) {
+      b.update();
+      if (b.collides(hitbox)) this.crash();
+      if (!b.passed && b.y > this.craft.y + this.craft.h) { b.passed = true; this.score++; }
+    }
+    const calm = !!this.active.clear, last = this.barriers[this.barriers.length - 1];
+    if (!calm && z.between.length && this.between === null && WALL_SPACING / 2 - FALL_SPEED < last.y && last.y <= WALL_SPACING / 2 &&
+        Math.random() < lerp(0.35, 0.8, this.diff) && this.roomForMore()) this.placeBetween();
+    if (last.y > WALL_SPACING - WALL_HEIGHT) {
+      const gap = Math.floor(lerp(220, 150, this.diff));
+      let reach = (WALL_SPACING - WALL_HEIGHT - CRAFT_H) / (FALL_SPEED + 0.5) * CRAFT_SPEED * 0.75;
+      if (this.between === "blackhole") reach *= 0.45; else if (this.between) reach *= 0.6;
+      this.barriers.push(new Barrier(-WALL_HEIGHT, gap, last.gaps, reach));
+      this.between = null;
+    }
+    this.barriers = this.barriers.filter(b => b.y < H);
+
+    if (!calm && Math.random() < lerp(0.004, 0.012, this.diff) * (z.rockBoost || 1) && this.roomForMore()) this.hazards.push(new Rock(z.rock));
+    for (const kind of Object.keys(this.timers)) {
+      if (calm) continue;
+      if (--this.timers[kind] <= 0) this.timers[kind] = Math.floor(this.spawn(kind) * FPS * rand(0.8, 1.2));
+    }
+    for (const w of this.warnings) {
+      if (--w[1] <= 0) this.hazards.push(w[2] === "comet" ? new Comet(w[0], lerp(6.5, 8, this.diff)) : new Meteor(z.rock, w[0], lerp(5, 6.5, this.diff)));
+    }
+    this.warnings = this.warnings.filter(w => w[1] > 0);
+
+    for (const h of [...this.hazards]) {
+      h.update(this);
+      if (h.collides(hitbox)) {
+        if (!this.active.shield) this.crash();
+        else if (h.hp !== null && !h.dead) this.destroy(h);
+      }
+    }
+    this.hazards = this.hazards.filter(h => !h.dead);
+    for (const h of this.hazards) if (h.gone()) this.score += h.points;
+    this.hazards = this.hazards.filter(h => !h.gone());
+  }
+  moveBullets() {
+    for (const b of this.bullets) {
+      b.y -= 11;
+      const r = b.rect();
+      if (b.y < -20 || this.barriers.some(w => w.collides(r))) { b.dead = true; continue; }
+      const caught = this.boosters.find(bo => bo.touches(r));
+      if (caught) { b.dead = true; this.boosters = this.boosters.filter(bo => bo !== caught); this.activate(caught); continue; }
+      for (const h of this.hazards) {
+        const isHit = h.shotBy ? h.shotBy(r) : h.collides(r);
+        if (!isHit || h.dead) continue;
+        b.dead = true;
+        if (h.hp === null) this.effects.push(new Explosion(b.x, b.y, 6, [[190, 140, 255], WHITE], 14));
+        else if (h.hp > 1) { h.hp--; this.effects.push(new Explosion(b.x, b.y, 8, [WHITE, [255, 220, 120]], 14)); }
+        else this.destroy(h);
+        break;
+      }
+    }
+    this.bullets = this.bullets.filter(b => !b.dead);
+    this.hazards = this.hazards.filter(h => !h.dead);
+  }
+  destroy(h, points = true) {
+    h.dead = true; this.effects.push(new Explosion(h.x, h.y, blastSize(h)));
+    if (points) { const gain = Math.max(1, h.points); this.score += gain; this.popups.push([h.x, h.y - 10, "+" + gain, 45]); }
+  }
+  updateBoosters(hitbox) {
+    for (const k of Object.keys(this.active)) if (--this.active[k] <= 0) delete this.active[k];
+    if (--this.boosterTimer <= 0) {
+      this.boosters.push(new Booster(choice(["slow", "clear", "shield", ...(this.armed() ? ["rapid"] : [])])));
+      this.boosterTimer = randint(12 * FPS, 20 * FPS);
+    }
+    for (const bo of this.boosters) { bo.update(); if (bo.touches(hitbox)) { bo.caught = true; this.activate(bo); } }
+    this.boosters = this.boosters.filter(bo => !bo.gone() && !bo.caught);
+  }
+  activate(bo) {
+    const [name, colour] = BOOSTERS[bo.kind];
+    this.active[bo.kind] = BOOST_TIME; this.flash = [name + "!", colour, 70];
+    this.effects.push(new Explosion(bo.x, bo.y, 14, [colour, WHITE], 24));
+    if (bo.kind === "clear") { for (const h of this.hazards) if (!h.dead) this.destroy(h, false); this.hazards = []; this.warnings = []; }
+  }
+  crash() {
+    if (this.alive) {
+      this.effects.push(new Explosion(this.craft.cx, this.craft.cy, 46, undefined, 50));
+      if (this === game && this.score > best) { best = this.score; try { localStorage.setItem("spaceDodgeBest", String(best)); } catch (e) {} }
+      if (this === game) vibrate(120);
+    }
+    this.alive = false;
+  }
+  draw() {
+    const c = this.colours;
+    this.background.draw(this.tick);
+    for (const [x, y, s] of this.stars) circle(c.star, x, y, s);
+    for (const b of this.barriers) b.draw(c.wall, c.edge);
+    for (const h of this.hazards) h.draw(this.tick);
+    for (const [x, , kind] of this.warnings) if (Math.floor(this.tick / 5) % 2 === 0) text("!", 26, x, 22, kind === "comet" ? YELLOW : [255, 150, 60], "center");
+    for (const bo of this.boosters) bo.draw(this.tick);
+    for (const b of this.bullets) b.draw();
+    if (this.alive) {
+      this.craft.draw(this.tick);
+      const left = this.active.shield || 0;
+      if (left && (left > FPS || Math.floor(this.tick / 5) % 2 === 0)) { circle(rgb([120, 255, 150], 0.22), this.craft.cx, this.craft.cy, 42); circle(rgb([170, 255, 190], 0.8), this.craft.cx, this.craft.cy, 42, 2); }
+    }
+    if (this.active.slow) { ctx.fillStyle = rgb([60, 110, 255], 0.11); ctx.fillRect(0, 0, W, H); }
+    for (const e of this.effects) e.draw();
+    for (const [x, y, s] of this.popups) text(s, 18, x, y, [255, 230, 120], "center");
+
+    // HUD
+    text("Score: " + this.score, 26, 12, 24, WHITE);
+    text("Best: " + best, 26, W - 12, 24, WHITE, "right");
+    text(`Difficulty: ${Math.round(this.diff * 100)}%`, 16, 12, 52, [170, 180, 215]);
+    const z = ZONES[this.zone];
+    text(z.name, 16, W / 2, 16, WHITE, "center");
+    if (this.zone < ZONES.length - 1) {
+      box([60, 60, 80], W / 2 - 80, 30, 160, 6, 3);
+      box(c.edge, W / 2 - 80, 30, Math.max(1, 160 * (this.score % ZONE_LENGTH) / ZONE_LENGTH), 6, 3);
+      text("next: " + ZONES[this.zone + 1].name, 15, W / 2, 48, [170, 180, 215], "center");
+    }
+    let y = H - 44;
+    for (const [kind, left] of Object.entries(this.active)) {
+      const [name, colour] = BOOSTERS[kind];
+      const bx = touchUI ? W / 2 - 100 : W - 230, by = touchUI ? 128 + (H - 44 - y) : y;
+      text(name, 15, bx, by, colour); box([50, 55, 70], bx, by + 12, 200, 5); box(colour, bx, by + 12, 200 * left / BOOST_TIME, 5);
+      y -= 34;
+    }
+    const [fname, fcol, ft] = this.flash;
+    if (ft > 0 && this.alive) { text(fname, 44, W / 2, H / 2 - 60, fcol, "center"); this.flash = [fname, fcol, ft - 1]; }
+    if (this.armed() && this.alive && !touchUI) text("Press , to shoot", 16, 12, H - 18, [110, 235, 255]);
+    if (this.bannerT > 0 && this.alive && (this.bannerT > 40 || Math.floor(this.tick / 6) % 2 === 0)) {
+      const [t1, t2] = this.banner.split("\n");
+      text(t1, 24, W / 2, 88, YELLOW, "center");
+      if (t2) text(t2, 16, W / 2, 116, YELLOW, "center");
+    }
+    if (!this.alive) {
+      ctx.fillStyle = "rgba(0,0,20,0.35)"; ctx.fillRect(0, 0, W, H);
+      text("CRASHED!", 46, W / 2, H / 2 - 40, [230, 70, 70], "center");
+      text(`Score: ${this.score}   (reached: ${z.name})`, 22, W / 2, H / 2 + 10, WHITE, "center");
+      text(touchUI ? "Tap the screen to play again" : "SPACE or tap to play again", 22, W / 2, H / 2 + 50, WHITE, "center");
+    }
+  }
+}
+
+// =================================================================== screen, input, loop
+const canvas = document.getElementById("game");
+ctx = canvas.getContext("2d");
+const menu = document.getElementById("menu");
+const fireBtn = document.getElementById("fire");
+const touchUI = window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
+if (touchUI) document.querySelectorAll(".kb").forEach(el => { el.hidden = true; });
+let game = null, running = false;
+
+// ---- fit the game to the phone: notch and home bar stay clear, buttons get their own space
+const probe = document.createElement("div");
+probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
+document.body.appendChild(probe);
+const padL = document.getElementById("pad-left"), padR = document.getElementById("pad-right");
+let preview = null;
+
+function measure() {
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width : window.innerWidth, vh = vv ? vv.height : window.innerHeight;
+  const cs = getComputedStyle(probe);
+  const i = { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0,
+              b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+  const landscape = vw >= vh;
+  document.body.classList.toggle("landscape", touchUI && landscape);
+  document.body.classList.toggle("portrait", touchUI && !landscape);
+  if (touchUI && landscape) {                       // phone sideways: button columns left and right
+    const colL = 150, colR = 118;
+    padL.style.left = (i.l + 8) + "px"; padR.style.right = (i.r + 12) + "px";
+    padL.style.bottom = padR.style.bottom = (i.b + 14) + "px";
+    return { x: i.l + colL, y: i.t, w: vw - i.l - i.r - colL - colR, h: vh - i.t - i.b };
+  }
+  if (touchUI) {                                    // phone upright: button bar underneath
+    const bar = 150;
+    padL.style.left = (i.l + 18) + "px"; padR.style.right = (i.r + 18) + "px";
+    padL.style.bottom = padR.style.bottom = (i.b + 30) + "px";
+    return { x: i.l, y: i.t, w: vw - i.l - i.r, h: vh - i.t - i.b - bar };
+  }
+  return { x: 0, y: 0, w: vw, h: vh };
+}
+function logicalSize(a) {
+  const aspect = a.w / Math.max(1, a.h);
+  if (aspect >= 1) return [Math.round(Math.min(1300, Math.max(640, 540 * aspect))), 540];
+  return [600, Math.round(Math.min(1300, Math.max(540, 600 / aspect)))];
+}
+function rebuild() {
+  blobCache.clear();
+  preview = new Game(); preview.bannerQueue = []; preview.bannerT = 0;
+  if (running) { running = false; game = null; menu.hidden = false; }
+  else game = null;
+}
+function fit() {
+  const a = measure();
+  const playing = running && game && game.alive;
+  const [nw, nh] = logicalSize(a);
+  if (!playing && (nw !== W || nh !== H || !preview)) { W = nw; H = nh; rebuild(); }
+  const scale = Math.min(a.w / W, a.h / H);
+  const cw = Math.floor(W * scale), ch = Math.floor(H * scale);
+  canvas.style.width = cw + "px"; canvas.style.height = ch + "px";
+  canvas.style.left = Math.round(a.x + (a.w - cw) / 2) + "px"; canvas.style.top = Math.round(a.y + (a.h - ch) / 2) + "px";
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  canvas.width = Math.floor(cw * dpr); canvas.height = Math.floor(ch * dpr);
+  ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+}
+let fitTimer = 0;
+const refit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fit, 120); };
+window.addEventListener("resize", refit);
+window.addEventListener("orientationchange", refit);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", refit);
+
+function vibrate(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+
+// touch buttons: support several fingers at once
+function hold(el, key) {
+  const on = e => { e.preventDefault(); input[key] = true; el.classList.add("on"); if (e.pointerId !== undefined) { try { el.setPointerCapture(e.pointerId); } catch (_) {} } };
+  const off = e => { e.preventDefault(); input[key] = false; el.classList.remove("on"); };
+  el.addEventListener("pointerdown", on); el.addEventListener("pointerup", off);
+  el.addEventListener("pointercancel", off); el.addEventListener("lostpointercapture", off);
+  el.addEventListener("contextmenu", e => e.preventDefault());
+}
+hold(document.getElementById("left"), "left");
+hold(document.getElementById("right"), "right");
+hold(fireBtn, "fire");
+
+const KEYS = { KeyZ: "left", ArrowLeft: "left", Slash: "right", ArrowRight: "right", Comma: "fire" };
+window.addEventListener("keydown", e => {
+  if (KEYS[e.code]) { input[KEYS[e.code]] = true; e.preventDefault(); }
+  if (e.code === "Space") { e.preventDefault(); if (!running) start(); else if (game && !game.alive) game.reset(); }
+});
+window.addEventListener("keyup", e => { if (KEYS[e.code]) input[KEYS[e.code]] = false; });
+window.addEventListener("blur", () => { input.left = input.right = input.fire = false; });
+document.getElementById("stage").addEventListener("pointerdown", e => {
+  if (game && !game.alive && game.effects.length < 2) { e.preventDefault(); fit(); if (game) game.reset(); }
+});
+document.addEventListener("gesturestart", e => e.preventDefault());
+document.addEventListener("dblclick", e => e.preventDefault());
+
+function start() {
+  menu.hidden = true; running = true;
+  fit();
+  if (!game) game = new Game(); else game.reset();
+  try { const el = document.documentElement; if (touchUI && el.requestFullscreen) el.requestFullscreen().catch(() => {}); } catch (e) {}
+  try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(() => {}); } catch (e) {}
+}
+document.getElementById("go").addEventListener("click", start);
+document.getElementById("best-line").textContent = best ? `Your best score on this phone: ${best}` : "";
+document.addEventListener("visibilitychange", () => { last = performance.now(); acc = 0; });
+
+let last = performance.now(), acc = 0;
+fit();                               // sizes the game and builds the demo screen behind the menu
+function frame(now) {
+  acc += Math.min(0.1, (now - last) / 1000); last = now;
+  const g = running ? game : preview;
+  let steps = 0;
+  while (acc >= 1 / FPS && steps < 6) {
+    if (!running) { preview.craft.fx = W / 2 - CRAFT_W / 2 + Math.sin(now / 900) * 200; }
+    g.update(); acc -= 1 / FPS; steps++;
+    if (!running && !preview.alive) preview.reset();
+  }
+  if (steps === 6) acc = 0;
+  fireBtn.classList.toggle("locked", !(running && game && game.armed()));
+  g.draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+// works offline once it has been opened: an offline helper keeps a copy of the game
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>

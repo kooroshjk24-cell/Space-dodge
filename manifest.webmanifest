@@ -1,0 +1,15 @@
+{
+  "name": "Space Dodge",
+  "short_name": "Space Dodge",
+  "description": "Fly an Orion-style spacecraft through 11 parts of space.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#05070f",
+  "theme_color": "#05070f",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
