@@ -91,10 +91,10 @@ canvas { position: absolute; display: block; background: #000; touch-action: non
 // =================================================================== settings
 let W = 960, H = 540, HUD_T = 0, HUD_L = 0, HUD_R = 0;              // game size in game pixels: adapts to the screen shape
 const FPS = 60;
-const CRAFT_SCALE = 1.4, CRAFT_W = 84, CRAFT_H = 84, CRAFT_SPEED = 8, REACH_SPEED = 6;
+const CRAFT_SCALE = 1.4, CRAFT_W = 84, CRAFT_H = 84, CRAFT_SPEED = 8, CRAFT_SPEED_MAX = 12, REACH_SPEED = 6;
 const FALL_SPEED = 3.5, WALL_HEIGHT = 24, WALL_SPACING = 300;
 const HARDEST_AT = 500, ZONE_LENGTH = 30;
-const SAFE = (CRAFT_W - 8) / 2 + 2;
+const SAFE = (CRAFT_W - 12) / 2 + 4;          // half the spacecraft's hit area, plus a little room
 const FONT = 'Menlo, "SF Mono", Consolas, "DejaVu Sans Mono", monospace';
 const WHITE = [255, 255, 255], YELLOW = [255, 220, 70], LASER = [255, 70, 120];
 
@@ -270,7 +270,7 @@ class Rock {
   constructor(style, x = null, radius = null, vy = null) {
     this.style = style; this.radius = radius || randint(12, 24);
     this.x = x !== null ? x : randint(this.radius, W - this.radius); this.y = -this.radius;
-    this.vy = vy || FALL_SPEED * rand(1.1, 1.5); this.vx = rand(-1.2, 1.2); this.spin = rand(0, TAU);
+    this.vy = vy || FALL_SPEED * rand(1.25, 1.6);   // faster than the walls, so rocks don't sit in an opening this.vx = rand(-1.2, 1.2); this.spin = rand(0, TAU);
     this.points = 0; this.hp = 1;
   }
   update() { this.x += this.vx; this.y += this.vy; this.spin += 0.05; if (this.x < this.radius || this.x > W - this.radius) this.vx *= -1; }
@@ -414,13 +414,13 @@ class Fighter {
 }
 class Mothership extends Fighter {
   constructor(f) { super(f); this.points = 4; this.hp = 6; this.sideways = 1.4; }
-  fire(game) { for (const dx of [-34, 34]) game.hazards.push(new Laser(this.x + dx, this.y + 14, [120, 255, 140])); }
+  fire(game) { for (const dx of [-46, 46]) game.hazards.push(new Laser(this.x + dx, this.y + 14, [120, 255, 140])); }   // guns far enough apart to sit between the two lasers
   shotBy(r) { return hit(rect(this.x - 66, this.y - 30, 132, 50), r); }
   draw(tick) {
     const { x, y } = this;
     ellipse([55, 75, 70], x - 70, y - 14, 140, 32); ellipse([95, 125, 115], x - 62, y - 18, 124, 26); ellipse([150, 255, 200], x - 22, y - 30, 44, 24);
     for (let k = -3; k < 4; k++) circle((k + Math.floor(tick / 8)) % 3 === 0 ? [255, 240, 120] : [120, 110, 60], x + k * 16, y + 4, 3);
-    for (const dx of [-34, 34]) { box([40, 50, 50], x + dx - 4, y + 6, 8, 10); if (this.charging() && Math.floor(tick / 3) % 2 === 0) circle([120, 255, 140], x + dx, y + 16, 5); }
+    for (const dx of [-46, 46]) { box([40, 50, 50], x + dx - 4, y + 6, 8, 10); if (this.charging() && Math.floor(tick / 3) % 2 === 0) circle([120, 255, 140], x + dx, y + 16, 5); }
   }
 }
 class Alien {
@@ -455,8 +455,12 @@ class Alien {
   }
 }
 class Satellite {
-  constructor(speed) { this.dir = choice([-1, 1]); this.x = this.dir > 0 ? -60 : W + 60; this.y = randint(30, 150); this.vx = this.dir * speed; this.points = 2; this.hp = 2; }
-  update() { this.x += this.vx; this.y += 1.7; }
+  constructor(speed) {
+    // drifts in from the side and dives down, so it never sweeps sideways across the spacecraft for long
+    this.dir = choice([-1, 1]); this.x = this.dir > 0 ? -60 : W + 60; this.y = randint(30, 150);
+    this.vx = this.dir * speed * 0.6; this.vy = FALL_SPEED * rand(1.6, 1.9); this.points = 2; this.hp = 2;
+  }
+  update() { this.x += this.vx; this.y += this.vy; }
   gone() { return this.y > H + 40 || (this.dir > 0 && this.x > W + 80) || (this.dir < 0 && this.x < -80); }
   collides(r) { return hit(rect(this.x - 44, this.y - 8, 88, 16), r); }
   draw(tick) {
@@ -620,7 +624,7 @@ class Game {
   }
   armed() { return this.zone >= 1; }
   count(cls) { return this.hazards.filter(h => h instanceof cls).length; }
-  roomForMore() { return this.hazards.filter(h => !(h instanceof Laser || h instanceof Fighter || h instanceof Mine)).length < 3 + Math.round(5 * this.diff); }
+  roomForMore() { return this.hazards.filter(h => !(h instanceof Laser || h instanceof Fighter || h instanceof Mine)).length < 3 + Math.round(4 * this.diff); }
   freeSpot(half, others = []) {
     const gaps = this.barriers[this.barriers.length - 1].gaps;
     for (let n = 0; n < 40; n++) {
@@ -645,7 +649,7 @@ class Game {
     if (kind === "ufo") { if (this.count(UFO) < 1 + Math.round(2 * d) && this.roomForMore()) this.hazards.push(new UFO(lerp(2.5, 4, d))); return lerp(8, 3, d); }
     if (kind === "comet") { this.warnings.push([randint(40, W - 40), 50, "comet"]); return lerp(5, 1.6, d); }
     if (kind === "fighter" || kind === "mothership") {
-      if (this.count(Fighter) === 0) this.hazards.push(kind === "mothership" ? new Mothership(Math.floor(lerp(85, 45, d))) : new Fighter(Math.floor(lerp(85, 45, d))));
+      if (this.count(Fighter) === 0) this.hazards.push(kind === "mothership" ? new Mothership(Math.floor(lerp(90, 60, d))) : new Fighter(Math.floor(lerp(85, 50, d))));
       return lerp(14, 7, d);
     }
     if (kind === "green" || kind === "jelly" || kind === "purple") {
@@ -678,7 +682,7 @@ class Game {
     if (!this.alive) return;
 
     this.diff = difficulty(this.score);
-    this.craft.push(((input.right ? 1 : 0) - (input.left ? 1 : 0)) * CRAFT_SPEED);
+    this.craft.push(((input.right ? 1 : 0) - (input.left ? 1 : 0)) * lerp(CRAFT_SPEED, CRAFT_SPEED_MAX, this.diff));   // the spacecraft gets faster as you go
     for (const h of this.hazards) if (h instanceof BlackHole) this.craft.push(h.pullOn(this.craft));
     const hitbox = this.craft.hitbox();
     const zone = Math.min(Math.floor(this.score / ZONE_LENGTH), ZONES.length - 1);
@@ -707,7 +711,7 @@ class Game {
     if (!calm && z.between.length && this.between === null && WALL_SPACING / 2 - FALL_SPEED < last.y && last.y <= WALL_SPACING / 2 &&
         Math.random() < lerp(0.35, 0.8, this.diff) && this.roomForMore()) this.placeBetween();
     if (last.y > WALL_SPACING - WALL_HEIGHT) {
-      const gap = Math.floor(lerp(220, 150, this.diff));
+      const gap = Math.floor(lerp(240, 170, this.diff));   // openings sized for the bigger spacecraft
       let reach = (WALL_SPACING - WALL_HEIGHT - CRAFT_H) / (FALL_SPEED + 0.5) * REACH_SPEED * 0.75;
       if (this.between === "blackhole") reach *= 0.45; else if (this.between) reach *= 0.6;
       this.barriers.push(new Barrier(-WALL_HEIGHT, gap, last.gaps, reach));
