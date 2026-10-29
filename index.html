@@ -957,7 +957,17 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 // works offline once it has been opened: an offline helper keeps a copy of the game
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator) {
+  const hadHelper = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  // when a new version of the game arrives, switch to it straight away (unless a game is running)
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadHelper || reloaded) return;
+    const apply = () => { if (!running || !game || !game.alive) { reloaded = true; location.reload(); } else setTimeout(apply, 1000); };
+    apply();
+  });
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(r => r.update()).catch(() => {});
+}
 </script>
 </body>
 </html>
