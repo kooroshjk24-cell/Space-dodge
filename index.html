@@ -91,7 +91,7 @@ canvas { position: absolute; display: block; background: #000; touch-action: non
 // =================================================================== settings
 let W = 960, H = 540, HUD_T = 0, HUD_L = 0, HUD_R = 0;              // game size in game pixels: adapts to the screen shape
 const FPS = 60;
-const CRAFT_W = 60, CRAFT_H = 60, CRAFT_SPEED = 8, REACH_SPEED = 6;
+const CRAFT_SCALE = 1.4, CRAFT_W = 84, CRAFT_H = 84, CRAFT_SPEED = 8, REACH_SPEED = 6;
 const FALL_SPEED = 3.5, WALL_HEIGHT = 24, WALL_SPACING = 300;
 const HARDEST_AT = 500, ZONE_LENGTH = 30;
 const SAFE = (CRAFT_W - 8) / 2 + 2;
@@ -194,14 +194,19 @@ function text(s, size, x, y, colour, align = "left") {
 
 // =================================================================== spacecraft
 class Spacecraft {
-  constructor() { this.w = CRAFT_W; this.h = CRAFT_H; this.fx = W / 2 - CRAFT_W / 2; this.y = Math.round(H / 2 - CRAFT_H / 2); }
+  constructor() { this.w = CRAFT_W; this.h = CRAFT_H; this.fx = W / 2 - CRAFT_W / 2; this.y = Math.round(H * 0.68 - CRAFT_H / 2); }
   get x() { return Math.round(this.fx); }
   get cx() { return this.x + this.w / 2; }
   get cy() { return this.y + this.h / 2; }
   push(dx) { this.fx = Math.min(Math.max(this.fx + dx, 0), W - CRAFT_W); }
-  hitbox() { return rect(this.x + 4, this.y + 5, this.w - 8, this.h - 10); }
+  hitbox() { return rect(this.x + 6, this.y + 7, this.w - 12, this.h - 14); }
   draw(tick) {
     const cx = this.cx, top = this.y;
+    ctx.save(); ctx.translate(cx, top); ctx.scale(CRAFT_SCALE, CRAFT_SCALE); ctx.translate(-cx, -top);   // drawn 1.4x bigger
+    this.shape(cx, top, tick);
+    ctx.restore();
+  }
+  shape(cx, top, tick) {
     const len = 10 + Math.floor(tick / 3) % 3 * 4;
     poly([255, 140, 30], [[cx - 6, top + 54], [cx + 6, top + 54], [cx, top + 56 + len]]);
     poly([255, 230, 90], [[cx - 3, top + 54], [cx + 3, top + 54], [cx, top + 56 + len / 2]]);
@@ -790,7 +795,7 @@ class Game {
     if (this.alive) {
       this.craft.draw(this.tick);
       const left = this.active.shield || 0;
-      if (left && (left > FPS || Math.floor(this.tick / 5) % 2 === 0)) { circle(rgb([120, 255, 150], 0.22), this.craft.cx, this.craft.cy, 42); circle(rgb([170, 255, 190], 0.8), this.craft.cx, this.craft.cy, 42, 2); }
+      if (left && (left > FPS || Math.floor(this.tick / 5) % 2 === 0)) { circle(rgb([120, 255, 150], 0.22), this.craft.cx, this.craft.cy, 58); circle(rgb([170, 255, 190], 0.8), this.craft.cx, this.craft.cy, 58, 2); }
     }
     if (this.active.slow) { ctx.fillStyle = rgb([60, 110, 255], 0.11); ctx.fillRect(0, 0, W, H); }
     for (const e of this.effects) e.draw();
