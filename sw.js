@@ -1,5 +1,5 @@
 // Keeps a copy of the game on the phone so it also works without internet.
-const CACHE = "space-dodge-v1";
+const CACHE = "space-dodge-v2";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", e => {

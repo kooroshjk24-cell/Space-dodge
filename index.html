@@ -89,9 +89,9 @@ canvas { position: absolute; display: block; background: #000; touch-action: non
 <script>
 "use strict";
 // =================================================================== settings
-let W = 960, H = 540;              // game size in game pixels: adapts to the screen shape
+let W = 960, H = 540, HUD_T = 0, HUD_L = 0, HUD_R = 0;              // game size in game pixels: adapts to the screen shape
 const FPS = 60;
-const CRAFT_W = 60, CRAFT_H = 60, CRAFT_SPEED = 6;
+const CRAFT_W = 60, CRAFT_H = 60, CRAFT_SPEED = 8, REACH_SPEED = 6;
 const FALL_SPEED = 3.5, WALL_HEIGHT = 24, WALL_SPACING = 300;
 const HARDEST_AT = 500, ZONE_LENGTH = 30;
 const SAFE = (CRAFT_W - 8) / 2 + 2;
@@ -194,7 +194,7 @@ function text(s, size, x, y, colour, align = "left") {
 
 // =================================================================== spacecraft
 class Spacecraft {
-  constructor() { this.w = CRAFT_W; this.h = CRAFT_H; this.fx = W / 2 - CRAFT_W / 2; this.y = H - 40 - CRAFT_H; }
+  constructor() { this.w = CRAFT_W; this.h = CRAFT_H; this.fx = W / 2 - CRAFT_W / 2; this.y = Math.round(H / 2 - CRAFT_H / 2); }
   get x() { return Math.round(this.fx); }
   get cx() { return this.x + this.w / 2; }
   get cy() { return this.y + this.h / 2; }
@@ -515,10 +515,7 @@ class Background {
     const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
     const c = cv.getContext("2d"), g = c.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, rgb(z.top)); g.addColorStop(1, rgb(z.bottom)); c.fillStyle = g; c.fillRect(0, 0, W, H);
-    if (z.ambient === "earthglow") {
-      const glow = c.createLinearGradient(0, H - 40, 0, H); glow.addColorStop(0, rgb([90, 160, 255], 0)); glow.addColorStop(1, rgb([90, 160, 255], 0.8));
-      c.fillStyle = glow; c.fillRect(0, H - 40, W, 40);
-    } else if (z.ambient === "swirls") {
+    if (z.ambient === "swirls") {
       let k = 0;
       for (let y = 30; y < H; y += 70, k++) { c.fillStyle = rgb(mix(mix(z.top, z.bottom, y / H), k % 2 ? [235, 190, 140] : [120, 60, 30], 0.25)); c.fillRect(0, y, W, 26); }
     } else if (z.ambient === "sparkle") {
@@ -706,7 +703,7 @@ class Game {
         Math.random() < lerp(0.35, 0.8, this.diff) && this.roomForMore()) this.placeBetween();
     if (last.y > WALL_SPACING - WALL_HEIGHT) {
       const gap = Math.floor(lerp(220, 150, this.diff));
-      let reach = (WALL_SPACING - WALL_HEIGHT - CRAFT_H) / (FALL_SPEED + 0.5) * CRAFT_SPEED * 0.75;
+      let reach = (WALL_SPACING - WALL_HEIGHT - CRAFT_H) / (FALL_SPEED + 0.5) * REACH_SPEED * 0.75;
       if (this.between === "blackhole") reach *= 0.45; else if (this.between) reach *= 0.6;
       this.barriers.push(new Barrier(-WALL_HEIGHT, gap, last.gaps, reach));
       this.between = null;
@@ -787,7 +784,7 @@ class Game {
     for (const [x, y, s] of this.stars) circle(c.star, x, y, s);
     for (const b of this.barriers) b.draw(c.wall, c.edge);
     for (const h of this.hazards) h.draw(this.tick);
-    for (const [x, , kind] of this.warnings) if (Math.floor(this.tick / 5) % 2 === 0) text("!", 26, x, 22, kind === "comet" ? YELLOW : [255, 150, 60], "center");
+    for (const [x, , kind] of this.warnings) if (Math.floor(this.tick / 5) % 2 === 0) text("!", 26, x, 22 + HUD_T, kind === "comet" ? YELLOW : [255, 150, 60], "center");
     for (const bo of this.boosters) bo.draw(this.tick);
     for (const b of this.bullets) b.draw();
     if (this.alive) {
@@ -800,9 +797,10 @@ class Game {
     for (const [x, y, s] of this.popups) text(s, 18, x, y, [255, 230, 120], "center");
 
     // HUD
-    text("Score: " + this.score, 26, 12, 24, WHITE);
-    text("Best: " + best, 26, W - 12, 24, WHITE, "right");
-    text(`Difficulty: ${Math.round(this.diff * 100)}%`, 16, 12, 52, [170, 180, 215]);
+    ctx.save(); ctx.translate(0, HUD_T);
+    text("Score: " + this.score, 26, 12 + HUD_L, 24, WHITE);
+    text("Best: " + best, 26, W - 12 - HUD_R, 24, WHITE, "right");
+    text(`Difficulty: ${Math.round(this.diff * 100)}%`, 16, 12 + HUD_L, 52, [170, 180, 215]);
     const z = ZONES[this.zone];
     text(z.name, 16, W / 2, 16, WHITE, "center");
     if (this.zone < ZONES.length - 1) {
@@ -810,10 +808,11 @@ class Game {
       box(c.edge, W / 2 - 80, 30, Math.max(1, 160 * (this.score % ZONE_LENGTH) / ZONE_LENGTH), 6, 3);
       text("next: " + ZONES[this.zone + 1].name, 15, W / 2, 48, [170, 180, 215], "center");
     }
+    ctx.restore();
     let y = H - 44;
     for (const [kind, left] of Object.entries(this.active)) {
       const [name, colour] = BOOSTERS[kind];
-      const bx = touchUI ? W / 2 - 100 : W - 230, by = touchUI ? 128 + (H - 44 - y) : y;
+      const bx = touchUI ? W / 2 - 100 : W - 230, by = touchUI ? 128 + HUD_T + (H - 44 - y) : y;
       text(name, 15, bx, by, colour); box([50, 55, 70], bx, by + 12, 200, 5); box(colour, bx, by + 12, 200 * left / BOOST_TIME, 5);
       y -= 34;
     }
@@ -822,8 +821,8 @@ class Game {
     if (this.armed() && this.alive && !touchUI) text("Press , to shoot", 16, 12, H - 18, [110, 235, 255]);
     if (this.bannerT > 0 && this.alive && (this.bannerT > 40 || Math.floor(this.tick / 6) % 2 === 0)) {
       const [t1, t2] = this.banner.split("\n");
-      text(t1, 24, W / 2, 88, YELLOW, "center");
-      if (t2) text(t2, 16, W / 2, 116, YELLOW, "center");
+      text(t1, 24, W / 2, 88 + HUD_T, YELLOW, "center");
+      if (t2) text(t2, 16, W / 2, 116 + HUD_T, YELLOW, "center");
     }
     if (!this.alive) {
       ctx.fillStyle = "rgba(0,0,20,0.35)"; ctx.fillRect(0, 0, W, H);
@@ -860,23 +859,21 @@ function measure() {
   document.body.classList.toggle("landscape", touchUI && landscape);
   document.body.classList.toggle("portrait", touchUI && !landscape);
   if (touchUI && landscape) {                       // phone sideways: button columns left and right
-    const colL = 150, colR = 118;
     padL.style.left = (i.l + 8) + "px"; padR.style.right = (i.r + 12) + "px";
-    padL.style.bottom = padR.style.bottom = (i.b + 14) + "px";
-    return { x: i.l + colL, y: i.t, w: vw - i.l - i.r - colL - colR, h: vh - i.t - i.b };
+    padL.style.bottom = padR.style.bottom = (i.b + 4) + "px";
+    return { x: 0, y: 0, w: vw, h: vh, i };
   }
   if (touchUI) {                                    // phone upright: button bar underneath
-    const bar = 150;
     padL.style.left = (i.l + 18) + "px"; padR.style.right = (i.r + 18) + "px";
-    padL.style.bottom = padR.style.bottom = (i.b + 30) + "px";
-    return { x: i.l, y: i.t, w: vw - i.l - i.r, h: vh - i.t - i.b - bar };
+    padL.style.bottom = padR.style.bottom = Math.max(6, i.b - 10) + "px";
+    return { x: 0, y: 0, w: vw, h: vh, i };
   }
-  return { x: 0, y: 0, w: vw, h: vh };
+  return { x: 0, y: 0, w: vw, h: vh, i: { t: 0, r: 0, b: 0, l: 0 } };
 }
 function logicalSize(a) {
   const aspect = a.w / Math.max(1, a.h);
-  if (aspect >= 1) return [Math.round(Math.min(1300, Math.max(640, 540 * aspect))), 540];
-  return [600, Math.round(Math.min(1300, Math.max(540, 600 / aspect)))];
+  if (aspect >= 1) return [Math.round(Math.min(2000, Math.max(640, 540 * aspect))), 540];
+  return [600, Math.round(Math.min(2000, Math.max(540, 600 / aspect)))];
 }
 function rebuild() {
   blobCache.clear();
@@ -889,7 +886,8 @@ function fit() {
   const playing = running && game && game.alive;
   const [nw, nh] = logicalSize(a);
   if (!playing && (nw !== W || nh !== H || !preview)) { W = nw; H = nh; rebuild(); }
-  const scale = Math.min(a.w / W, a.h / H);
+  const scale = Math.max(a.w / W, a.h / H);     // fill the whole screen
+  HUD_T = a.i.t / scale; HUD_L = a.i.l / scale; HUD_R = a.i.r / scale;
   const cw = Math.floor(W * scale), ch = Math.floor(H * scale);
   canvas.style.width = cw + "px"; canvas.style.height = ch + "px";
   canvas.style.left = Math.round(a.x + (a.w - cw) / 2) + "px"; canvas.style.top = Math.round(a.y + (a.h - ch) / 2) + "px";
